@@ -1,6 +1,6 @@
 unit xquery1_tests;
 
-{$mode objfpc}{$H+}
+{$I ../../internettoolsconfig.inc}
 {$WARN 5024 off : Parameter "$1" not used}
 interface
 
@@ -22,7 +22,7 @@ type
   ps: TXQueryEngine;
   constructor create;
   destructor Destroy; override;
-  procedure DeclareExternalVariableEvent({%H-}sender: TObject; const {%H-}context: TXQStaticContext; const namespace: string;  const variable: string; var value: IXQValue);
+  procedure DeclareExternalVariableEvent(const {%H-}context: TXQStaticContext; {%H-}sender: TObject; const namespace: string;  const variable: string; var value: IXQValue);
   procedure DeclareExternalFunctionEvent({%H-}sender: TObject; const {%H-}context: TXQStaticContext; const {%H-}namespace: string;  const functionName: string; var value: TXQValueFunction);
   procedure ImportModule({%H-}sender: TObject; {%H-}context: TXQStaticContext; const namespace: string; const {%H-}at: array of string);
 end;
@@ -194,6 +194,7 @@ begin
 
   count:=0;
   ps := TXQueryEngine.Create;
+  ps.StaticContext.model := xqpmXQuery1;
   ps.StaticContext.baseURI := 'pseudo://test';
   ps.ImplicitTimezoneInMinutes:=-5 * 60;
   ps.OnCollection := TXQEvaluateVariableEvent(procedureToMethod(TProcedure(@collection)));
@@ -1314,7 +1315,7 @@ begin
   t('<r><a><b>b1<c>c1</c><c>c2</c><c>c3</c><c>c4</c></b><b>b2<c>cx1</c><c>cx2<c>CC1</c></c></b>al<d>d1</d><d>d2</d><d>d3<e>dxe1</e></d><f>f1</f><f>f2</f></a></r> / string-join((a/b) / (c/c), ",")', 'CC1', '');
   t('<r><a><b>b1<c>c1</c><c>c2</c><c>c3</c><c>c4</c></b><b>b2<c>cx1</c><c>cx2<c>CC1</c></c></b>al<d>d1</d><d>d2</d><d>d3<e>dxe1</e></d><f>f1</f><f>f2</f></a></r> / string-join(a/b[2]/c[1]/c[1], ",")', '', '');
   t('<r><a><b>b1<c>c1</c><c>c2</c><c>c3</c><c>c4</c></b><b>b2<c>cx1</c><c>cx2<c>CC1</c></c></b>al<d>d1</d><d>d2</d><d>d3<e>dxe1</e></d><f>f1</f><f>f2</f></a></r> / string-join(a/b[2]/c[2]/c[1], ",")', 'CC1', '');
-                //concattenate,union,intersect,except
+                //concatenate,union,intersect,except
   t('<r><a><b>b1<c>c1</c><c>c2</c><c>c3</c><c>c4</c></b><b>b2<c>cx1</c><c>cx2<c>CC1</c></c></b>al<d>d1</d><d>d2</d><d>d3<e>dxe1</e></d><f>f1</f><f>f2</f></a></r> / string-join((a/b, a/f), ",")', 'b1c1c2c3c4,b2cx1cx2CC1,f1,f2', '');
   t('<r><a><b>b1<c>c1</c><c>c2</c><c>c3</c><c>c4</c></b><b>b2<c>cx1</c><c>cx2<c>CC1</c></c></b>al<d>d1</d><d>d2</d><d>d3<e>dxe1</e></d><f>f1</f><f>f2</f></a></r> / string-join((a/f, a/b), ",")', 'f1,f2,b1c1c2c3c4,b2cx1cx2CC1', '');
   t('<r><a><b>b1<c>c1</c><c>c2</c><c>c3</c><c>c4</c></b><b>b2<c>cx1</c><c>cx2<c>CC1</c></c></b>al<d>d1</d><d>d2</d><d>d3<e>dxe1</e></d><f>f1</f><f>f2</f></a></r> / string-join((a/f, a/b, a/f), ",")', 'f1,f2,b1c1c2c3c4,b2cx1cx2CC1,f1,f2', '');
@@ -1679,7 +1680,7 @@ begin
   m('number("17")', '17');
   m('number(text {"17"} )', '17');
   m('number(comment {"17"} )', '17');
-  m('string-to-codepoints("ABC")', '65');
+  m('string-to-codepoints("ABC")', '656667');
   m('string-to-codepoints(processing-instruction XYZ {"A"})', '65');
   t('collection()', 'foobar');
   m('123 castable as xs:integer', 'true');
@@ -1981,7 +1982,7 @@ begin
   inherited Destroy;
 end;
 
-procedure THelper.DeclareExternalVariableEvent(sender: TObject; const context: TXQStaticContext; const namespace: string;
+procedure THelper.DeclareExternalVariableEvent(const context: TXQStaticContext; sender: TObject; const namespace: string;
   const variable: string; var value: IXQValue);
 begin
   case variable of

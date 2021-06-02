@@ -12,7 +12,7 @@ uses
   windows,
   {$endif}
   Classes, sysutils, strutils, xquery, xquery_module_math,
-  simplehtmltreeparser, simplexmltreeparserfpdom, XMLRead, xquery__regex, xquery_module_file,
+  simplehtmltreeparser, simplexmltreeparserfpdom, XMLRead, xquery__regex, xquery_module_file, xquery_module_binary,
   bbutils, math, rcmdline, internetaccess, mockinternetaccess, xquery.namespaces, xquery.internals.common, xquery.internals.collations,
   dynlibs, xquery_module_uca_icu;
   { you can add units after this }
@@ -62,7 +62,7 @@ type
   procedure init;
   class function load(e: TTreeNode): TEnvironment;
   function getCollection(sender: TObject; const variable: string; var value: IXQValue): boolean;
-  procedure getExternalVariable(sender: TObject; const context: TXQStaticContext; const namespaceUrl, variable: string; var value: IXQValue);
+  procedure getExternalVariable(const context: TXQStaticContext; sender: TObject; const namespaceUrl, variable: string; var value: IXQValue);
 end;
 
 { TDependency }
@@ -1626,7 +1626,7 @@ begin
     end;
 end;
 
-procedure TEnvironment.getExternalVariable(sender: TObject; const context: TXQStaticContext; const namespaceUrl, variable: string;
+procedure TEnvironment.getExternalVariable(const context: TXQStaticContext; sender: TObject; const namespaceUrl, variable: string;
   var value: IXQValue);
 var
   i: Integer;
@@ -1741,6 +1741,7 @@ begin
   cat.addRef;
   if cat.getFirstChild().getAttribute('test-suite') = 'EXPATH' then begin
     registerModuleFile;
+    registerModuleBinary;
     xq.ImplicitTimezoneInMinutes := -GetLocalTimeOffset;
   end;
   basePath := strBeforeLast(cat.documentURI,'/');
@@ -1986,6 +1987,7 @@ begin
   xq.StaticContext.stripBoundarySpace:=true;
   xq.StaticContext.strictTypeChecking:=true;
   xq.StaticContext.defaultFunctionNamespace := TNamespace.make(XMLNamespaceURL_XPathFunctions, 'fn');
+  xq.StaticContext.model := config.version;
   TNamespace.releaseIfNonNil(xq.StaticContext.defaultTypeNamespace);
   xq.StaticContext.useLocalNamespaces:=false;
   xq.AutomaticallyRegisterParsedModules := true;

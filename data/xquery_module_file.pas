@@ -5,17 +5,12 @@
  Afterwards you can use e.g. @code(query('Q{http://expath.org/ns/file}exists("/tmp/")')) to test for the existence of a file.
  If you add the namespace to the namespaces in the static context, you can write it simpler as @code(query('f:exists("/tmp/")')).
 
-
-
-
-
- not much tested
 *)
 
 unit xquery_module_file;
 
 
-{$mode objfpc}{$H+}
+{$I ../internettoolsconfig.inc}
 
 interface
 
@@ -33,7 +28,7 @@ implementation
 uses Classes, SysUtils, xquery, bbutils, strutils, bigdecimalmath, base64, math, xquery__regex
   , internetaccess //it does not need internet access itself, just the URI encoding function there
   , xquery.internals.common, xquery.internals.lclexcerpt
-  , xquery__serialization
+  , xquery__serialization, xquery__serialization_nodes
   {$ifdef unix},BaseUnix{$endif}
   {$ifdef windows},windows{$endif}
     ;
@@ -181,16 +176,21 @@ begin
   temp := DWORD(FileGetAttr(Filename));
   result := (temp <> $ffffffff) and ((temp and FILE_ATTRIBUTE_DIRECTORY) = 0);
   {$else}
-  result := FileExists(Filename) and not DirectoryExists(Filename);
+  result := FileExists(Filename){$if FPC_FULLVERSION < 30200} and not DirectoryExists(Filename){$endif};
   {$endif}
 end;
 
 function FileOrDirectoryExists(const Filename: string): boolean;
+{$ifndef windows}
+var
+  systemFilename: RawByteString;
+{$endif}
 begin
   {$ifdef windows}
   result := DWORD(FileGetAttr(Filename)) <> $ffffffff;
   {$else}
-  result := FileExists(Filename);
+  systemFilename:=ToSingleByteFileSystemEncodedFileName(Filename);
+  result:=fpAccess(pchar(systemFilename),F_OK) = 0;
   {$endif}
 end;
 
@@ -253,7 +253,7 @@ begin
   end;
 end;
 
-function writeOrAppendSomething(const filename: IXQValue; append: boolean; data: rawbytestring; offset: int64 = -1): IXQValue;
+function writeOrAppendSomething(const filename: IXQValue; append: boolean; databuffer: pchar; bufferlen: sizeint; offset: int64 = -1): IXQValue;
 var f: TFileStream;
     mode: word;
     path: AnsiString;
@@ -281,9 +281,9 @@ begin
       f.Position := offset;
       if offset > f.Size then raiseFileError(Error_Out_Of_Range, Error_Out_Of_Range, filename);
     end else if append then f.position := f.size;
-    if length(data) > 0 then
+    if bufferlen > 0 then
       try
-        f.WriteBuffer(data[1], length(data));
+        f.WriteBuffer(databuffer^, bufferlen);
       except
         on e: EStreamError do
           raiseFileError(Error_Io_Error, 'Failed to write', filename);
@@ -293,6 +293,17 @@ begin
   end;
   result := xqvalue();
 end;
+
+function writeOrAppendSomething(const filename: IXQValue; append: boolean; data: TBytes; offset: int64 = -1): IXQValue;
+begin
+  result := writeOrAppendSomething(filename, append, pchar(pbyte(data)), length(data), offset);
+end;
+
+function writeOrAppendSomething(const filename: IXQValue; append: boolean; data: rawbytestring; offset: int64 = -1): IXQValue;
+begin
+  result := writeOrAppendSomething(filename, append, pchar(data), length(data), offset);
+end;
+
 
 function writeOrAppendSerialized(const context: TXQEvaluationContext; argc: SizeInt; args: PIXQValue; append: boolean): IXQValue;
 var
@@ -329,7 +340,7 @@ end;
 function append_Binary(const context: TXQEvaluationContext; {%H-}argc: SizeInt; args: PIXQValue): IXQValue;
 begin
   ignore(context);
-  result := writeOrAppendSomething(args[0], true, (args[1] as TXQValueBinary).toRawBinary);
+  result := writeOrAppendSomething(args[0], true, (args[1] as TXQValueBinary).toBinaryBytes);
 end;
 function append_Text(const context: TXQEvaluationContext; {%H-}argc: SizeInt; args: PIXQValue): IXQValue;
 begin
@@ -353,7 +364,7 @@ begin
   ignore(context);
   offset := -1;
   if argc >= 3 then if not xqToUInt64(args[2], offset) then raiseFileError(Error_Out_Of_Range, Error_Out_Of_Range, args[2]);
-  result := writeOrAppendSomething(args[0], argc >= 3, (args[1] as TXQValueBinary).toRawBinary, offset);
+  result := writeOrAppendSomething(args[0], argc >= 3, (args[1] as TXQValueBinary).toBinaryBytes, offset);
 end;
 function write_Text(const context: TXQEvaluationContext; {%H-}argc: SizeInt; args: PIXQValue): IXQValue;
 begin
@@ -646,7 +657,7 @@ end;
 
 function strFileName({normalized}path: string): string;
 var
-  lastSep: LongInt;
+  lastSep: SizeInt;
 begin
   lastSep := strlastIndexOf(path, AllowDirectorySeparators);
   if lastsep = length(path) then begin
@@ -787,8 +798,8 @@ begin
     module.registerFunction('line-separator', @line_separator).setVersionsShared([stringt]);
     module.registerFunction('path-separator', @path_separator).setVersionsShared([stringt]);
     module.registerFunction('temp-dir', @temp_dir).setVersionsShared([stringt]);
-    module.registerInterpretedFunction('base-dir', '() as xs:string', 'Q{http://expath.org/ns/file}parent(static-base-uri())');
-    module.registerInterpretedFunction('current-dir', '() as xs:string', 'Q{http://expath.org/ns/file}resolve-path(".")');
+    module.registerInterpretedFunction('base-dir', '() as xs:string', 'Q{'+XMLNamespaceURL_Expath_File+'}parent(static-base-uri())');
+    module.registerInterpretedFunction('current-dir', '() as xs:string', 'Q{'+XMLNamespaceURL_Expath_File+'}resolve-path(".")');
   end;
 
   TXQueryEngine.registerNativeModule(module);
@@ -797,7 +808,7 @@ end;
 
 
 initialization
-  XMLNamespace_Expath_File := TNamespace.makeWithRC1('http://expath.org/ns/file', 'file');
+  XMLNamespace_Expath_File := TNamespace.makeWithRC1(XMLNamespaceURL_Expath_File, 'file');
 
 finalization
   XMLNamespace_Expath_File._Release;

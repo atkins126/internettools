@@ -19,8 +19,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
     Currently it only supports HTTP/S connections, but this might change in future (e.g. to also support ftp)}
 unit internetaccess;
 
-{$mode objfpc}{$H+}
-{$modeswitch advancedrecords}
+{$I ../internettoolsconfig.inc}
 {$WARN 5043 off : Symbol "$1" is deprecated}
 interface
 
@@ -836,6 +835,17 @@ const SystemCAFiles: array[1..2{$ifndef windows}+7{$endif}] of string = (
    programPath: String;
 {$endif}
 begin
+  temp := GetEnvironmentVariable('SSL_CERT_FILE');
+  if (temp <> '') and (FileExists(temp)) then CAFile := temp;
+  temp := GetEnvironmentVariable('SSL_CERT_DIR');
+  if (temp <> '') and (DirectoryExists(temp)) then CAPath := temp;
+
+  {$ifdef android}
+  temp := GetEnvironmentVariable('PREFIX');
+  if (CAFile = '') and FileExists(temp + '/etc/tls/cert.pem') then CAFile := temp + '/etc/tls/cert.pem';
+  if (CAPath = '') and DirectoryExists(temp + '/etc/tls/certs') then CAPath := temp + '/etc/tls/certs';
+  {$endif}
+
   {$ifdef windows}
   programPath:=IncludeTrailingBackslash(ExtractFilePath(ParamStr(0)));
   for i := low(SystemCAFiles) to high(SystemCAFiles) do begin
@@ -847,20 +857,14 @@ begin
     if CAFile <> '' then break;
     if FileExists(SystemCAFiles[i]) then CAFile := SystemCAFiles[i];
   end;
-  if (CAFile = '') then begin
-    temp := GetEnvironmentVariable('SSL_CERT_FILE');
-    if (temp <> '') and (FileExists(temp)) then CAFile := temp;
-  end;
+
+
   {$ifndef windows}
   for i := low(SystemCAPaths) to high(SystemCAPaths) do begin
     if CAPath <> '' then break;
     if DirectoryExists(SystemCAPaths[i]) then CAPath := SystemCAPaths[i];
   end;
   {$endif}
-  if (CAPath = '') then begin
-    temp := GetEnvironmentVariable('SSL_CERT_DIR');
-    if (temp <> '') and (DirectoryExists(temp)) then CAPath := temp;
-  end;
 end;
 
 

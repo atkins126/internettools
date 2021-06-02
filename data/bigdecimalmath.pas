@@ -23,7 +23,7 @@ exception statement from your version.
 
 (***
 
-  An unit for arbitrary precision arithmetic on bcd floats
+  A unit for arbitrary precision arithmetics on BCD floats
 
   See @link(BigDecimal)
 
@@ -35,6 +35,7 @@ unit bigdecimalmath;
 
 {$mode objfpc}{$H+}
 {$ModeSwitch advancedrecords}
+{$COperators on}
 interface
 
 uses
@@ -100,6 +101,12 @@ type
     exponent: integer;
     signed, lastDigitHidden: ByteBool;
 
+    function toLongint: longint;
+    function toInt64: int64;
+    function toSizeInt: sizeint;
+    function tryToLongint(out v: longint): boolean;
+    function tryToInt64(out v: int64): boolean;
+    function tryToSizeInt(out v: sizeint): boolean;
     function toString(format: TBigDecimalFormat = bdfExact): string;
     {$ifdef FPC_HAS_TYPE_SINGLE}
     function toSingle: single;
@@ -2213,6 +2220,46 @@ end;
 {$ifdef FPC_HAS_TYPE_Single}
 type
   TBigDecimalToSingleConverter = specialize TBigDecimalToFloatConverter<single, TFloatInformation.TSingleInformation>;
+
+function BigDecimal.toLongint: longint;
+begin
+  result := BigDecimalToLongint(self); //todo: raise exception on overflow
+end;
+
+function BigDecimal.toInt64: int64;
+begin
+  result := BigDecimalToInt64(self);
+end;
+
+function BigDecimal.toSizeInt: sizeint;
+begin
+  {$ifdef cpu32}
+  result := toLongint;
+  {$else}
+  result := toInt64;
+  {$endif}
+end;
+
+function BigDecimal.tryToLongint(out v: longint): boolean;
+begin
+  result := isLongint(self);
+  if result then v := BigDecimalToLongint(self);
+end;
+
+function BigDecimal.tryToInt64(out v: int64): boolean;
+begin
+  result := isInt64(self);
+  if result then v := BigDecimalToInt64(self);
+end;
+
+function BigDecimal.tryToSizeInt(out v: sizeint): boolean;
+begin
+  {$ifdef cpu32}
+  result := tryToLongint(v);
+  {$else}
+  result := tryToInt64(v);
+  {$endif}
+end;
 
 function BigDecimal.toString(format: TBigDecimalFormat): string;
 begin

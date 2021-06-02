@@ -1,6 +1,6 @@
 unit parsertests;
 
-{$mode objfpc}{$H+}
+{$I ../../internettoolsconfig.inc}
 
 interface
 
@@ -131,6 +131,9 @@ begin
     t(#0'<'#0'h'#0't'#0'm'#0'l'#0'>'#0#$FC#$0'<'#0'/'#0'h'#0't'#0'm'#0'l'#0'>', '<html>'#$C3#$BC'</html>',  'text/html; charset=utf-16be');
   end;
 
+  t('<html><svg xmlns="http://www.w3.org/2000/svg"></svg><script>"a < b"</script></html>', '<html><svg xmlns="http://www.w3.org/2000/svg"/><script>&quot;a &lt; b&quot;</script></html>');
+
+
   tp.repairMissingStartTags := true;
   tp.repairMissingEndTags := true;
   t('<html><body></body></html>aaa', '<html><head/><body>aaa</body></html>');
@@ -165,6 +168,29 @@ begin
   t('<ex:b xmlns:ex="http://www.example.com/ns?p=&apos;&#x20;&apos;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;">93.7</ex:b>', '<ex:b xmlns:ex="http://www.example.com/ns?p=&apos; &apos;">93.7</ex:b>');
   t('<r> <?foobar?> </r>', '<r> <?foobar?> </r>');
   t('<r> <?php echo "<span class=''cap''>".$row[''ID''].". "; ?> </r>', '<r> <?php echo "<span class=''cap''>".$row[''ID''].". "; ?> </r>');
+
+{  XML1.0:
+  To simplify the tasks of applications, the XML processor must behave as if it normalized all line breaks in external parsed entities (including the document entity) on input, before parsing, by translating both the two-character sequence #xD #xA and any #xD that is not followed by #xA to a single #xA character.
+
+  XML1.1:
+
+  the two-character sequence #xD #xA
+
+  the two-character sequence #xD #x85
+
+  the single character #x85
+
+  the single character #x2028
+
+  any #xD character that is not immediately followed by #xA or #x85.
+
+
+  //utf 8 $2028 = e280a8, $85 = C285}
+
+  if DefaultSystemCodePage = CP_UTF8 then begin
+    t('<a>'#13#10'b'#13'c'#13#$C2#$85'd'#$C2#$85'e'#$e2#$80#$a8'</a>', '<a>'#10'b'#10'c'#10'&#x85;d&#x85;e&#x2028;</a>');
+    t('<?xml version="1.1"?><a>'#13#10'b'#13'c'#13#$C2#$85'd'#$C2#$85'e'#$e2#$80#$a8'</a>', '<a>'#10'b'#10'c'#10'd'#10'e'#10'</a>');
+  end;
 
   finally
       tp.free;

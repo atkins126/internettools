@@ -1,6 +1,6 @@
 unit xquery3_tests;
 
-{$mode objfpc}{$H+}
+{$I ../../internettoolsconfig.inc}
 
 interface
 
@@ -99,6 +99,7 @@ var
 begin
   count:=0;
   ps := TXQueryEngine.Create;
+  ps.StaticContext.model := xqpmXQuery3;
   ps.StaticContext.baseURI := 'pseudo://test';
   ps.ImplicitTimezoneInMinutes:=-5 * 60;
   ps.StaticContext.strictTypeChecking := true;

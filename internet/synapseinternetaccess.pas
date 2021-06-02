@@ -18,7 +18,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 unit synapseinternetaccess;
 
 
-{$mode objfpc}{$H+}
 
 
 
@@ -31,6 +30,7 @@ unit synapseinternetaccess;
  {$DEFINE COMPILE_SYNAPSE_INTERNETACCESS}
 {$ENDIF}
 
+{$I ../internettoolsconfig.inc}
 
 
 interface
@@ -65,6 +65,7 @@ protected
   procedure setCustomError(msg: string; id: integer = -3);
 public
   function Connect: boolean; override;
+  function LibVersion: String; override;
 end;
 
 { TSynapseInternetAccess }
@@ -103,7 +104,9 @@ implementation
 
 uses synautil,ssl_openssl_lib,bbutils
      {$ifndef WINDOWS},netdb{$endif}
-     {$if FPC_FULLVERSION < 30101},dynlibs{$endif};
+     {$if FPC_FULLVERSION < 30101},dynlibs{$endif}
+     {$if not (defined(WINDOWS) or defined(android))},BaseUnix{$endif}
+     ;
 
 resourcestring rsConnectionFailed = 'Connection failed. Some possible causes: Failed DNS lookup, failed to load OpenSSL, failed proxy, server does not exists, has no open port or uses an unknown https certificate.';
   rsSSLErrorNoOpenSSL = 'Couldn''t load ssl libraries: libopenssl and libcrypto%sThey must be installed separately.%s'+
@@ -111,7 +114,7 @@ resourcestring rsConnectionFailed = 'Connection failed. Some possible causes: Fa
                         'On Fedora/CentOS install openssl-devel.%s' +
                         'On Windows install OpenSSL from https://slproweb.com/products/Win32OpenSSL.html';
   rsSSLErrorOpenSSLTooOld = 'OpenSSL version is too old for certificate checking. Required is OpenSSL 1.0.2+';
-  rsSSLErrorNoCA = 'Failed to load CA files from "%s" and "%s".';
+  rsSSLErrorCAFileLoadingFailed = 'Failed to load CA files.';
   rsSSLErrorSettingHostname = 'Failed to set hostname for certificate validation.';
   rsSSLErrorConnectionFailed = 'HTTPS connection failed after connecting to server. Some possible causes: handshake failure, mismatched HTTPS version/ciphers, invalid certificate';
   rsSSLErrorVerificationFailed = 'HTTPS certificate validation failed';
@@ -152,6 +155,18 @@ begin
   end;
 end;
 
+procedure disableSIGPIPECrash;
+var sa, osa: sigactionrec;
+begin
+  sa := default(sigactionrec);
+  osa := default(sigactionrec);
+  FPSigaction(SIGPIPE, nil, @osa);
+  if osa.sa_handler <> sigactionhandler(SIG_DFL) then
+    exit;
+  sa.sa_handler := sigactionhandler(SIG_IGN);
+  FPSigaction(SIGPIPE, @sa, nil);
+end;
+
 {$endif}
 
 function TSynapseSplitStream.Write(const Buffer; Count: LongInt): LongInt;
@@ -170,6 +185,7 @@ end;
 
 type
   PX509_VERIFY_PARAM = pointer;
+  TOpenSSL_version = function(t: integer): pchar; cdecl;
   TSSL_get0_param = function(ctx: PSSL_CTX): PX509_VERIFY_PARAM; cdecl;
   TX509_VERIFY_PARAM_set_hostflags = procedure(param: PX509_VERIFY_PARAM; flags: cardinal); cdecl;
   TX509_VERIFY_PARAM_set1_host = function(param: PX509_VERIFY_PARAM; name: pchar; nameLen: SizeUInt): integer; cdecl;
@@ -178,6 +194,7 @@ const X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS = 4;
 var _SSL_get0_param: TSSL_get0_param = nil;
 var _X509_VERIFY_PARAM_set_hostflags: TX509_VERIFY_PARAM_set_hostflags = nil;
 var _X509_VERIFY_PARAM_set1_host: TX509_VERIFY_PARAM_set1_host = nil;
+var _OpenSSL_version: TOpenSSL_version = nil;
 
 function TSSLOpenSSLOverride.customCertificateHandling: boolean;
 var
@@ -208,12 +225,12 @@ end;
 
 function TSSLOpenSSLOverride.customQuickClientPrepare: boolean;
 begin
-  if not assigned(FSsl) or not assigned(Fctx) or (FOldSSLType <> FSSLType) or (VerifyCert <> FOldVerifyCert) then begin
+  if not assigned(FSsl) or not assigned(Fctx) or (FOldSSLType <> FSSLType) or (VerifyCert <> FOldVerifyCert)  then begin
     result := Prepare(false);
-    if result and VerifyCert then
+    if result and VerifyCert and assigned(internetAccess) then
       if SslCtxLoadVerifyLocations(FCtx, internetAccess.internetConfig^.CAFile, internetAccess.internetConfig^.CAPath) <> 1 then begin
         SSLCheck;
-        setCustomError(format(rsSSLErrorNoCA, [internetAccess.internetConfig^.CAFile, internetAccess.internetConfig^.CAPath]));
+        setCustomError(rsSSLErrorCAFileLoadingFailed);
         result := false;
       end;
   end else begin
@@ -233,13 +250,26 @@ procedure TSSLOpenSSLOverride.setCustomError(msg: string; id: integer);
 var
   err: String;
 begin
+  if internetAccess = nil then
+    exit;
   internetAccess.lastHTTPResultCode := id;
   err := msg;
-  if LastErrorDesc <> '' then err += LineEnding+'OpenSSL-Error: '+LastErrorDesc;
+  if LastErrorDesc <> '' then begin
+    err := LineEnding + err;
+    err += LineEnding+'OpenSSL-Error: '+LastErrorDesc;
+    err += LineEnding+'OpenSSL information: CA file: '+internetAccess.internetConfig^.CAFile+' , CA dir: '+internetAccess.internetConfig^.CAPath+' , '+GetSSLVersion+', '+LibVersion;
+  end;
   if internetAccess.lastErrorDetails.contains(err) then exit;
   if internetAccess.lastErrorDetails <> '' then internetAccess.lastErrorDetails += LineEnding;
   internetAccess.lastErrorDetails += err;
 
+end;
+
+function TSSLOpenSSLOverride.LibVersion: String;
+begin
+  Result:=inherited LibVersion;
+  if assigned(_OpenSSL_version) then
+    result += _OpenSSL_version(0);
 end;
 
 //copied from Synapse
@@ -249,14 +279,13 @@ type
 const INVALID_SOCKET		= TSocket(NOT(0));
 var
   x: integer;
-{$ifdef false}
   b: boolean;
   err: integer;
-{$endif}
 begin
   Result := False;
   if FSocket.Socket = INVALID_SOCKET then
     Exit;
+
   if customQuickClientPrepare() then
   begin
 
@@ -274,9 +303,9 @@ begin
     end;
     if SNIHost<>'' then
       SSLCtrl(Fssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, PAnsiChar(AnsiString(SNIHost)));
-    if true {FSocket.ConnectionTimeout <= 0} then //do blocking call of SSL_Connect
+    //if (internetAccess <> nil) or (FSocket.ConnectionTimeout <= 0) then //do blocking call of SSL_Connect
     begin
-      //this is the branch is used by internet tools
+      //this is the branch used by internet tools
       x := sslconnect(FSsl);
       if x < 1 then
       begin
@@ -285,8 +314,8 @@ begin
         Exit;
       end;
     end;
-    {$if false}
-    else //do non-blocking call of SSL_Connect
+    //this must be commented out, because ConnectionTimeout is missing in Synapse SVN r40
+    {else //do non-blocking call of SSL_Connect
     begin
       b := Fsocket.NonBlockMode;
       Fsocket.NonBlockMode := true;
@@ -306,8 +335,8 @@ begin
         SSLcheck;
         Exit;
       end;
-    end;
-    {$endif}
+    end;}
+
     if FverifyCert then //seems like this is not needed, since sslconnect already fails on an invalid certificate
       if (GetVerifyCert <> 0) or (not DoVerifyCert) then begin
         setCustomError(rsSSLErrorVerificationFailed, -3);
@@ -466,6 +495,7 @@ if (SSLLibHandle <> 0) and (SSLUtilHandle <> 0) then begin
   _SSL_get0_param := TSSL_get0_param(GetProcedureAddress(SSLLibHandle, 'SSL_get0_param'));
   _X509_VERIFY_PARAM_set_hostflags := TX509_VERIFY_PARAM_set_hostflags(GetProcedureAddress(SSLUtilHandle, 'X509_VERIFY_PARAM_set_hostflags'));
   _X509_VERIFY_PARAM_set1_host := TX509_VERIFY_PARAM_set1_host(GetProcedureAddress(SSLUtilHandle, 'X509_VERIFY_PARAM_set1_host'));
+  _OpenSSL_version := TOpenSSL_version(GetProcedureAddress(SSLLibHandle, 'OpenSSL_version'));
 end;
 
 {$IFDEF USE_SYNAPSE_WRAPPER}
@@ -477,6 +507,9 @@ defaultInternetConfiguration.searchCertificates;
 
 {$if not (defined(WINDOWS) or defined(android))}
 InitCriticalSection(resolvConfCS{%H-});
+
+disableSIGPIPECrash;
+
 {$endif}
 finalization
 

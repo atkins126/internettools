@@ -1,7 +1,7 @@
 //copied from Lazarus/the LCL to reduce dependancies
 unit xquery.internals.lclexcerpt;
 
-{$mode objfpc}{$H+}
+{$I ../internettoolsconfig.inc}
 
 interface
 
@@ -128,9 +128,9 @@ end;
 function ResolveDots(const AFilename: string): string;
 //trim double path delims and expand special dirs like .. and .
 //on Windows change also '/' to '\' except for filenames starting with '\\?\'
-var SrcPos, DestPos, l, DirStart: integer;
+var SrcPos, DestPos, l, DirStart: SizeInt;
   c: char;
-  MacroPos: LongInt;
+  MacroPos: SizeInt;
 begin
   Result:=AFilename;
   {$ifdef windows}

@@ -20,8 +20,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 }
 
-{$mode objfpc}{$H+}
-{$ModeSwitch advancedrecords}
+{$I ../internettoolsconfig.inc}
+{$ModeSwitch autoderef-}
+{$PackSet 4}
 interface
 
 uses
@@ -240,7 +241,7 @@ end;
 
 function hasAnnotation(const ans: TXQAnnotations; const namespace, local: string): boolean;
 var
-  i: Integer;
+  i: SizeInt;
 begin
   for i := 0 to high(ans) do
     if ans[i].name.isEqual(namespace, local) then exit(true);
@@ -351,7 +352,7 @@ end;
 procedure TFinalVariableResolving.resolveVariables(t: PXQTerm);
 var
   m: TXQTermModule;
-  i: Integer;
+  i: SizeInt;
 begin
   try
     currentVariable := nil;
@@ -404,7 +405,7 @@ var
     v: TXQTermVariable;
 
 var oldContext: TXQStaticContext;
-    oldLastVarIndex: integer = -1;
+    oldLastVarIndex: SizeInt = -1;
   procedure goToNewContext(nc: TXQStaticContext);
   begin
     oldLastVarIndex := lastVariableIndex;
@@ -427,7 +428,7 @@ var oldContext: TXQStaticContext;
 var
   modu: TXQTermModule;
   q: TXQuery;
-  i, stackIndex, visitedIndex: Integer;
+  i, stackIndex, visitedIndex: SizeInt;
   tnf: TXQTermNamedFunction;
 
   globalVar: TXQTermVariableGlobal;
@@ -499,7 +500,7 @@ end;
 class procedure TVariableCycleDetectorXQ1.detectCycle(start: TXQTerm; sc: TXQStaticContext);
 var
   cycler: TVariableCycleDetectorXQ1;
-  i: Integer;
+  i: SizeInt;
 begin
   cycler := TVariableCycleDetectorXQ1.create(sc);
   try
@@ -685,7 +686,7 @@ end;
 function TXQParsingErrorTracker.lineInfoMessage(startAt, endAt: pchar): string;
 var i: SizeInt;
     line: String;
-    errorStart: Integer;
+    errorStart: SizeInt;
     lineRange: TLineRange;
 begin
   result := '';
@@ -844,7 +845,7 @@ begin
 end;
 
 procedure TXQParsingContext.skipComment();
-var nestene: integer;
+var nestene: SizeInt;
 begin
   nestene:=0;
   while pos^ <> #0 do begin
@@ -892,7 +893,7 @@ procedure TXQParsingContext.expect(s: string);
   end;
 
 var
-   i: Integer;
+   i: SizeInt;
 begin
   skipWhitespaceAndComment;
   for i:=1 to length(s) do begin
@@ -992,7 +993,7 @@ end;
 function TXQParsingContext.nextTokenIs(const s: string): boolean;
 var
   temppos: pchar;
-  i: Integer;
+  i: SizeInt;
 begin
   skipWhitespaceAndComment();
   temppos := pos;
@@ -1128,7 +1129,7 @@ begin
 end;
 
 function TXQParsingContext.parseSequenceLike(target: TXQTermWithChildren; closingChar: char; allowPartialApplication: boolean): TXQTermWithChildren;
-var partialApplications: integer;
+var partialApplications: SizeInt;
   procedure nextValue;
   var
     marker: PChar;
@@ -1299,7 +1300,7 @@ end;
 
 function TXQParsingContext.parseSequenceType(flags: TXQSequenceTypeFlags): TXQTermSequenceType;
 var word: string;
-  parens: Integer;
+  parens: SizeInt;
   nsurl, nsprefix: string;
 
   schema: TXSSchema;
@@ -2100,7 +2101,7 @@ var
   token: String;
   tempSeq: TXQTerm;
   onlyConstructors: Boolean;
-  i: Integer;
+  i: SizeInt;
   expectName: Boolean;
   namespaceUrl: string;
   namespacePrefix: string;
@@ -2368,10 +2369,10 @@ end;
 
 function TXQParsingContext.replaceEntitiesAlways(s: string): string;
 var
-  n, p: Integer;
+  n, p: SizeInt;
   temp: string;
   code: Integer;
-  i: Integer;
+  i: SizeInt;
   base: Integer;
 begin
   result := '';
@@ -2651,7 +2652,7 @@ begin
   skipWhitespaceAndComment();
   case pos^ of
     '0'..'9': begin
-      if not TryStrToInt(nextToken(), result.integerKey) then raiseSyntaxError('Need (integer) key');
+      if not {$ifdef cpu32}TryStrToInt{$else}TryStrToInt64{$endif}(nextToken(), result.integerKey) then raiseSyntaxError('Need (integer) key');
       result.mode := xqtjlmInteger
     end;
     '*': begin
@@ -3322,12 +3323,12 @@ end;
 
 procedure initializeFunctions(module: TXQTermModule; var context: TXQEvaluationContext);
 var
-  i: Integer;
+  i: SizeInt;
   functions: array of TXQValueFunction;
-  functionCount: Integer;
+  functionCount: SizeInt;
   children: array of TXQTerm;
   staticContext: TXQStaticContext;
-  oldFunctionCount: Integer;
+  oldFunctionCount: SizeInt;
 begin
   children := module.children;
   functionCount := 0;
@@ -3357,7 +3358,7 @@ var
   visited: TList;
   procedure rec(sc: TXQStaticContext);
   var
-    i, oldlen: Integer;
+    i, oldlen: SizeInt;
     sc2: TXQStaticContext;
   begin
     if (visited.IndexOf(sc) >= 0) or (sc.importedModules = nil) then exit;
@@ -3413,12 +3414,12 @@ procedure finalizeFunctionsEvenMore(module: TXQTermModule; sc: TXQStaticContext;
   end;
 
 var
-  i: Integer;
+  i: SizeInt;
   children: array of TXQTerm;
   functionCount: Integer;
-  overriden: Integer;
-  j: Integer;
-  oldFunctionCount, k: Integer;
+  overriden: SizeInt;
+  j: SizeInt;
+  oldFunctionCount, k: SizeInt;
   otherModule: TXQTermModule;
   otherFunction: TXQTermDefineFunction;
 begin
@@ -3485,7 +3486,7 @@ function TXQParsingContext.parseModule(): TXQTerm;
 var
   pendings: TXQueryModuleList;
   otherQuery: TXQuery;
-  i: Integer;
+  i: SizeInt;
   hadPending: Boolean;
 begin
   pendings := TXQueryEngineBreaker.forceCast(staticContext.sender).FPendingModules;
@@ -3533,7 +3534,7 @@ procedure TXQParsingContext.parseQuery(aquery: TXQuery; onlySpecialString: boole
     end;
 
   var
-    truehigh, i, j, ownvarcount, p, varcount: integer;
+    truehigh, i, j, ownvarcount, p, varcount: SizeInt;
     //l, r, varcount, i, j, p: Integer;
     imp: TXQTermModule;
   begin
@@ -3589,7 +3590,7 @@ procedure TXQParsingContext.parseQuery(aquery: TXQuery; onlySpecialString: boole
   end;
 
 var
-  oldPendingCount, oldFunctionCount, i: Integer;
+  oldPendingCount, oldFunctionCount, i: SizeInt;
   pendingModules: TXQueryModuleList;
 begin
   debugInfo := TXQParsingErrorTracker.Create(str);
@@ -3648,11 +3649,11 @@ var
 
   procedure initializeFunctionsAfterResolving();
   var
-    i: Integer;
+    i: SizeInt;
     children: array of TXQTerm;
     f: TXQTermDefineFunction;
     module: TXQTermModule;
-    p: Integer;
+    p: SizeInt;
   begin
     module := result as TXQTermModule;
     children := module.children;
@@ -4705,7 +4706,7 @@ function TFinalNamespaceResolving.visit(t: PXQTerm): TXQTerm_VisitAction;
     function handleArrowOperator: TXQTerm;
     var
       tcall: TXQTermWithChildren;
-      insertAt: Integer;
+      insertAt: SizeInt;
       tdf: TXQTermDefineFunction;
     begin
       result := b.children[1];
@@ -4781,7 +4782,7 @@ function TFinalNamespaceResolving.visit(t: PXQTerm): TXQTerm_VisitAction;
 
   procedure visitFlower(f: TXQTermFlower);
   var
-    i: Integer;
+    i: SizeInt;
   begin
     for i := 0 to high(f.children) - 1 do
       case TXQTermFlowerSubClause(f.children[i]).kind of
@@ -4807,8 +4808,7 @@ function TFinalNamespaceResolving.visit(t: PXQTerm): TXQTerm_VisitAction;
 
   procedure visitTryCatch(t: TXQTermTryCatch);
   var
-    i: Integer;
-    j: Integer;
+    i, j: SizeInt;
   begin
     for i := 0 to high(t.catches) do
       for j := 0 to high(t.catches[i].tests) do
@@ -4846,7 +4846,7 @@ function TFinalNamespaceResolving.leave(t: PXQTerm): TXQTerm_VisitAction;
   procedure visitConstructor(c: TXQTermConstructor);
     procedure checkForDuplicatedAttributes;
     var
-      i, j: Integer;
+      i, j: SizeInt;
       a1: TXQTermConstructor;
       a2: TXQTermConstructor;
     begin
@@ -4893,8 +4893,7 @@ function TFinalNamespaceResolving.leave(t: PXQTerm): TXQTerm_VisitAction;
 
   procedure visitFlower(f: TXQTermFlower);
   var
-    i: Integer;
-    j: Integer;
+    i, j: SizeInt;
     clause: TXQTermFlowerSubClause;
     groupclause: TXQTermFlowerGroup;
   begin

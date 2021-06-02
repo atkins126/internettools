@@ -1,5 +1,5 @@
 {**
-  @abstract This unit contains a html/xml -> tree converter
+  @abstract This unit contains an HTML/XML -> tree converter
 
   @author Benito van der Zander (http://www.benibela.de)
 }
@@ -95,7 +95,7 @@ TNodeNameHash = cardinal;
 
 //**@abstract This class representates an element of the html file
 //**It is stored in an unusual  tree representation: All elements form a linked list and the next element is the first children, or if there is none, the next node on the same level, or if there is none, the closing tag of the current parent.@br
-//**E.g. a xml file like @code(<foo><bar>x</bar></foo>) is stored as a quadro-linked list:
+//**E.g. an XML file like @code(<foo><bar>x</bar></foo>) is stored as a quadro-linked list:
 //**  @longCode(#
 //**   /---------------------------------\
 //**   |         |  -----------          |                                   link to parent (for faster access, it would work without it)
@@ -317,14 +317,13 @@ TBasicParsingState = (bpmBeforeHtml, bpmBeforeHead, bpmInHead, bpmAfterHead, bpm
 //**pmStrict: every tag must be closed explicitely (otherwise an exception is raised)
 //**pmHtml: accept everything, tries to create the best fitting tree using a heuristic to recover from faulty documents (no exceptions are raised), detect encoding
 TParsingModel = (pmStrict, pmHTML, pmUnstrictXML);
-//**@abstract This parses a html/sgml/xml file to a tree like structure.
+//**@abstract This parses an HTML/SGML/XML file to a tree like structure.
 //**To use it, you have to call @code(parseTree) with a string containing the document. Afterwards you can call @code(getLastTree) to get the document root node.@br
 //**
 //**The data structure is like a stream of annotated tokens with back links (so you can traverse it like a tree).@br
 //**If TargetEncoding is not CP_NONE, the parsed data is automatically converted to that encoding. (the initial encoding is detected depending on the unicode BOM, the xml-declaration, the content-type header, the http-equiv meta tag and invalid characters.)
 //**You can change the class used for the elements in the tree with the field treeNodeClass.
 TTreeParser = class
-  function processingInstruction(text: pchar; textLen: SizeInt; {%H-}unusedParameter: TTextFlags): TParsingResult;
 protected
   FAutoDetectHTMLEncoding: boolean;
   FReadProcessingInstructions: boolean;
@@ -341,6 +340,7 @@ protected
   FNCNameCache: TXQHashmapStrStr;
   FRepairMissingStartTags, FRepairMissingEndTags: boolean;
 
+  FLineSpaceNormalizationIncludes85_2028: boolean;
   FEncodingInputCertain, FEncodingCurrent, FEncodingMeta: TSystemCodePage;
   FReparseWithChangedEncoding: boolean;
   function abortIfEncodingMismatch: TParsingResult;
@@ -365,6 +365,7 @@ protected
   procedure leaveTagNoOpenTagCheck(tagName: pchar; tagNameLen: SizeInt);
   function readText(text: pchar; textLen: SizeInt; tf: TTextFlags):TParsingResult;
   function readComment(text: pchar; textLen: SizeInt):TParsingResult;
+  function readProcessingInstruction(text: pchar; textLen: SizeInt; {%H-}unusedParameter: TTextFlags): TParsingResult;
 
 private
   //in-scope namespaces
@@ -389,7 +390,7 @@ public
   constructor Create;
   destructor destroy;override;
   procedure clearTrees;
-  //** Creates a new tree from a html document contained in html. @br
+  //** Creates a new tree from an HTML document contained in html. @br
   //** contentType is used to detect the encoding
   function parseTree(html: string; uri: string = ''; contentType: string = ''): TTreeDocument; virtual;
   function parseTreeFromFile(filename: string): TTreeDocument; virtual;
@@ -421,7 +422,7 @@ const TreeNodesWithChildren = [tetOpen, tetDocument];
 
 
 
-type TInternetToolsFormat = (itfXML, itfHTML, itfJSON, itfXMLPreparsedEntity {<- not used, might be used in future});
+type TInternetToolsFormat = (itfUnknown, itfXML, itfHTML, itfJSON, itfXMLPreparsedEntity {<- not used, might be used in future}, itfPlainText);
 function guessFormat(const data, uri, contenttype: string): TInternetToolsFormat;
 
 function strEncodingFromContentType(const contenttype: string): TSystemCodePage;
@@ -429,11 +430,9 @@ function isInvalidUTF8Guess(const s: string; cutoff: integer): boolean;
 
 
 
-type TSerializationCallback = function (node: TTreeNode; includeSelf, insertLineBreaks, html: boolean): string;
-var GlobalNodeSerializationCallback: TSerializationCallback;
 
 implementation
-uses htmlInformation;
+uses htmlInformation, xquery__serialization_nodes;
 
 type THTMLOmittedEndTagInfo = class
   siblings, parents, additionallyclosed: TStringArray;
@@ -1679,17 +1678,27 @@ begin
 end;
 
 
+function nodeSerializationCallbackImpl(node: TTreeNode; includeSelf, insertLineBreaks, html: boolean): string;
+var serializer: TIndentingJSONXHTMLStrBuilder;
+begin
+  serializer.init(@result);
+  if insertLineBreaks then serializer.insertWhitespace := xqsiwIndent
+  else serializer.insertWhitespace := xqsiwNever;
+  serializeNodes(node, serializer, includeSelf, html, nil);
+  serializer.final;
+end;
+
 function TTreeNode.serializeXML(nodeSelf: boolean; insertLineBreaks: boolean): string;
 
 begin
   if self = nil then exit('');
-  result := GlobalNodeSerializationCallback(self, nodeSelf, insertLineBreaks, false);
+  result := nodeSerializationCallbackImpl(self, nodeSelf, insertLineBreaks, false);
 end;
 
 function TTreeNode.serializeHTML(nodeSelf: boolean; insertLineBreaks: boolean): string;
 begin
   if self = nil then exit('');
-  result := GlobalNodeSerializationCallback(self, nodeSelf, insertLineBreaks, true);
+  result := nodeSerializationCallbackImpl(self, nodeSelf, insertLineBreaks, true);
 end;
 
 
@@ -1911,7 +1920,7 @@ end;
 
 { THTMLTreeParser }
 
-function TTreeParser.processingInstruction(text: pchar; textLen: SizeInt; unusedParameter: TTextFlags): TParsingResult;
+function TTreeParser.readProcessingInstruction(text: pchar; textLen: SizeInt; unusedParameter: TTextFlags): TParsingResult;
   function cutproperty(var remainingtext: string; out value: string): string;
   var
     eq, closing: SizeInt;
@@ -1935,7 +1944,7 @@ var content: string;
     ws: Integer;
     i: Integer;
     new: TTreeNode;
-
+    isXML1_1: boolean = false;
 
 begin
   result := prContinue;
@@ -1966,9 +1975,13 @@ begin
         'standalone':
           if allowTextAtRootLevel and (parsingModel = pmStrict) then
             raise ETreeParseException.Create('External-preparsed-entity cannot be standalone');
+        'version':
+          if value = '1.1' then
+            isXML1_1 := true;
         '': break;
       end;
     end;
+    FLineSpaceNormalizationIncludes85_2028 := isXML1_1 and (FEncodingCurrent = FEncodingTargetActual) and (FEncodingTargetActual = CP_UTF8);
     exit;
   end;
   if not FReadProcessingInstructions then exit;
@@ -2035,7 +2048,10 @@ end;
 function TTreeParser.parseCDATA(t: pchar; len: SizeInt): string;
 begin
   result := parseRawText(t, len);
-  result := strNormalizeLineEndings(result);
+  if FLineSpaceNormalizationIncludes85_2028 then
+    result := strNormalizeLineEndingsUTF8(result)
+   else
+    result := strNormalizeLineEndings(result);
 end;
 {$ImplicitExceptions on}
 
@@ -2043,6 +2059,7 @@ function TTreeParser.parseTextAttribute(t: pchar; len: SizeInt): string;
 var decodeFlags: TDecodeHTMLEntitiesFlags;
 begin
   if parsingModel = pmHTML then decodeFlags := [dhefNormalizeLineEndings, dhefWindows1252Extensions]
+  else if FLineSpaceNormalizationIncludes85_2028 then decodeFlags := [dhefNormalizeLineEndings, dhefNormalizeLineEndingsAlso85_2028]
   else decodeFlags := [dhefNormalizeLineEndings];
   if FEncodingCurrent = FEncodingTargetActual then
     result := strDecodeHTMLEntities(t, len, FEncodingTargetActual, decodeFlags)
@@ -2537,8 +2554,10 @@ begin
     FCurrentNamespaceDefinitions.Delete(FCurrentNamespaceDefinitions.Count-1);
     FCurrentNamespaces.Delete(FCurrentNamespaces.Count-1);
   end;
-  if removedCurrentNamespace then
+  if removedCurrentNamespace then begin
+    FCurrentNamespace := nil;
     FCurrentNamespace := findNamespace('');
+  end;
 
 end;
 
@@ -2585,7 +2604,10 @@ begin
   typ := tetText;
   if tfCDATA in tf then t := parseCDATA(text, textLen)
   else t := parseTextAttribute(text, textLen);
-  appendTreeNode(typ, t, longint(text - @FCurrentFile[1])).initialized;
+  if FCurrentElement.typ <> tetText then
+    appendTreeNode(typ, t, longint(text - @FCurrentFile[1])).initialized
+   else
+    FCurrentElement.value += t;
 end;
 
 function TTreeParser.readComment(text: pchar; textLen: SizeInt): TParsingResult;
@@ -2787,6 +2809,7 @@ begin
   FLastHead := nil;
   flastbody := nil;
   flasthtml := nil;
+  FLineSpaceNormalizationIncludes85_2028 := false;
 
   //see https://www.w3.org/International/articles/spec-summaries/encoding
   FEncodingTargetActual:=strActualEncoding(FEncodingTarget);
@@ -2815,7 +2838,7 @@ begin
     simplehtmlparser.parseHTML(FCurrentFile,@enterHTMLTag, @leaveHTMLTag, @readText, @readComment);
     leaveHTMLTag(nil,0); //close root element
   end else begin
-    simplehtmlparser.parseML(FCurrentFile,[poRespectXMLProcessingInstructions],@enterXMLTag, @leaveXMLTag, @readText, @readComment, @processingInstruction);
+    simplehtmlparser.parseML(FCurrentFile,[poRespectXMLProcessingInstructions],@enterXMLTag, @leaveXMLTag, @readText, @readComment, @readProcessingInstruction);
     leaveXMLTag(nil,0); //close root element
   end;
   if FReparseWithChangedEncoding then begin
@@ -2913,6 +2936,9 @@ begin
   if contenttype.containsI('json') then
     exit(itfJSON);
 
+  if contenttype.containsI('text/plain') then
+    exit(itfPlainText);
+
   if uri.endsWithI('.html') or uri.endsWithI('.htm') then
     exit(itfHTML);
   if uri.endsWithI('.xml') then
@@ -2939,7 +2965,10 @@ begin
     if striBeginsWith(tdata, 'html') then exit(itfHTML);
   end;
 
-  result := itfXML;
+  if strBeginsWith(tdata, '<') then
+    exit(itfXML);
+
+  result := itfUnknown;
 end;
 
 function strEncodingFromContentType(const contenttype: string): TSystemCodePage;
